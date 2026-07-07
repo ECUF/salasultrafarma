@@ -1,494 +1,282 @@
-// Sistema Ultrafarma Salas
-// Importante: o Firebase é carregado apenas quando você preencher o firebase-config.js.
-// Assim o site não fica em branco no Vercel quando ainda estiver em modo demonstração.
-
-let initializeApp, getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, getDocs, serverTimestamp;
-
-const rooms = [
-  { id: "sala-1", name: "Sala 1", capacity: 4, type: "Sala de reunião", image: "assets/sala-1.jpeg", resources: ["TV/Monitor", "Mesa executiva", "Quadro"] },
-  { id: "sala-7", name: "Sala 7", capacity: 4, type: "Sala de reunião", image: "assets/sala-7.jpeg", resources: ["Mesa executiva", "Ambiente reservado", "Tomadas"] },
-  { id: "sala-4", name: "Sala 4", capacity: 8, type: "Sala de reunião", image: "assets/sala-4.jpeg", resources: ["Mesa ampla", "Áudio", "Quadro"] },
-  { id: "sala-5", name: "Sala 5", capacity: 8, type: "Sala de reunião", image: "assets/sala-5.jpeg", resources: ["Mesa ampla", "Videoconferência", "Quadro"] },
-  { id: "sala-8", name: "Sala 8", capacity: 4, type: "Sala de reunião", image: "assets/sala-8.jpeg", resources: ["Ambiente reservado", "Tomadas", "Privacidade"] },
-  { id: "auditorio", name: "Auditório", capacity: 100, type: "Auditório", image: "assets/sala-5.jpeg", resources: ["Apresentações", "Eventos", "Treinamentos"] }
+const ASSET = 'assets/';
+const roomsSeed = [
+  { id:'sala-1', name:'Sala 1', capacity:4, image:'assets/sala-1.jpeg', location:'Administrativo', active:true, resources:'TV, mesa, cadeiras e quadro' },
+  { id:'sala-7', name:'Sala 7', capacity:4, image:'assets/sala-7.jpeg', location:'Administrativo', active:true, resources:'TV, mesa, cadeiras e ar-condicionado' },
+  { id:'sala-4', name:'Sala 4', capacity:8, image:'assets/sala-4.jpeg', location:'Administrativo', active:true, resources:'Mesa executiva, conferência, quadro e ar-condicionado' },
+  { id:'sala-5', name:'Sala 5', capacity:8, image:'assets/sala-5.jpeg', location:'Administrativo', active:true, resources:'Mesa executiva, conferência, quadro e ar-condicionado' },
+  { id:'sala-8', name:'Sala 8', capacity:4, image:'assets/sala-8.jpeg', location:'Administrativo', active:true, resources:'Mesa, cadeiras e espaço reservado' },
+  { id:'auditorio', name:'Auditório', capacity:100, image:'assets/mapa-referencia.png', location:'Eventos', active:true, resources:'Auditório para eventos, treinamentos e apresentações' }
 ];
-
-const firebaseEnabled = Boolean(window.firebaseConfig?.apiKey && window.firebaseConfig?.projectId);
-let db = null;
-
-const state = {
-  bookings: [],
-  employees: [],
-  selectedDate: todayISO(),
-  selectedRoom: "all",
-  view: "agenda",
-  mode: firebaseEnabled ? "firebase" : "demo",
-  editingBookingId: null
-};
-
-const demoBookings = [
-  {
-    id: "demo-1",
-    roomId: "sala-4",
-    roomName: "Sala 4",
-    date: todayISO(),
-    startTime: "09:00",
-    endTime: "10:00",
-    title: "Reunião Marketing",
-    requester: "Equipe Marketing",
-    email: "marketing@ultrafarma.com.br",
-    people: 6,
-    status: "confirmada",
-    notes: "Apresentação semanal"
-  },
-  {
-    id: "demo-2",
-    roomId: "auditorio",
-    roomName: "Auditório",
-    date: todayISO(),
-    startTime: "14:00",
-    endTime: "16:00",
-    title: "Treinamento interno",
-    requester: "RH",
-    email: "rh@ultrafarma.com.br",
-    people: 60,
-    status: "confirmada",
-    notes: ""
-  }
+const usersSeed = [
+  { id:'admin', name:'Administrador Ultrafarma', email:'admin@ultrafarma.com', password:'admin123', role:'admin', status:'approved', department:'Marketing' },
+  { id:'demo', name:'Usuário Demonstração', email:'usuario@ultrafarma.com', password:'123456', role:'user', status:'approved', department:'Comercial' }
 ];
+const todayISO = () => new Date().toISOString().slice(0,10);
+const pad = n => String(n).padStart(2,'0');
+const minutes = time => { const [h,m]=time.split(':').map(Number); return h*60+m; };
+const hm = mins => `${pad(Math.floor(mins/60))}:${pad(mins%60)}`;
+const dateLabel = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+const state = { tab:'agenda', adminTab:'dashboard', view:'day', date:todayISO(), room:'all', currentUser:null, modal:null };
+let data = loadData();
 
-const storage = {
-  get(key, fallback) {
-    try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
-  },
-  set(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
-};
-
-function todayISO() {
-  const d = new Date();
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-  return d.toISOString().slice(0, 10);
-}
-
-function formatDate(date) {
-  return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
-}
-
-function timeToMinutes(value) {
-  const [h, m] = value.split(":").map(Number);
-  return h * 60 + m;
-}
-
-function overlaps(aStart, aEnd, bStart, bEnd) {
-  return timeToMinutes(aStart) < timeToMinutes(bEnd) && timeToMinutes(aEnd) > timeToMinutes(bStart);
-}
-
-function roomById(id) {
-  return rooms.find(room => room.id === id);
-}
-
-function filteredBookings() {
-  return state.bookings
-    .filter(b => b.date === state.selectedDate)
-    .filter(b => state.selectedRoom === "all" || b.roomId === state.selectedRoom)
-    .sort((a, b) => a.startTime.localeCompare(b.startTime));
-}
-
-function bookingsForRoom(roomId) {
-  return state.bookings
-    .filter(b => b.date === state.selectedDate && b.roomId === roomId)
-    .sort((a, b) => a.startTime.localeCompare(b.startTime));
-}
-
-function statusClass(status) {
-  return status === "cancelada" ? "is-canceled" : status === "pendente" ? "is-pending" : "is-confirmed";
-}
-
-function nextAvailability(roomId) {
-  const slots = bookingsForRoom(roomId).filter(b => b.status !== "cancelada");
-  const now = new Date();
-  const today = todayISO();
-  let start = state.selectedDate === today ? Math.max(8 * 60, now.getHours() * 60 + now.getMinutes()) : 8 * 60;
-  const endDay = 19 * 60;
-  for (const booking of slots) {
-    const bStart = timeToMinutes(booking.startTime);
-    const bEnd = timeToMinutes(booking.endTime);
-    if (start + 30 <= bStart) break;
-    if (start >= bStart && start < bEnd) start = bEnd;
+function loadData(){
+  const saved = localStorage.getItem('ultraReservaDataV2');
+  if(saved){
+    const parsed = JSON.parse(saved);
+    return { rooms: roomsSeed.map(r => ({...r, ...(parsed.rooms||[]).find(x=>x.id===r.id)})).concat((parsed.rooms||[]).filter(r=>!roomsSeed.some(s=>s.id===r.id))), users: parsed.users||usersSeed, reservations: parsed.reservations||[], settings: parsed.settings||defaultSettings() };
   }
-  if (start >= endDay) return "Sem janela hoje";
-  return `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`;
+  const base = { rooms: roomsSeed, users: usersSeed, reservations: seedReservations(), settings: defaultSettings() };
+  localStorage.setItem('ultraReservaDataV2', JSON.stringify(base));
+  return base;
+}
+function save(){ localStorage.setItem('ultraReservaDataV2', JSON.stringify(data)); }
+function defaultSettings(){ return { open:'08:00', close:'19:00', minDuration:30, maxDuration:240, slot:30, requireApproval:true, allowCancel:true }; }
+function seedReservations(){
+  const d=todayISO();
+  return [
+    {id:crypto.randomUUID(), roomId:'sala-4', userId:'demo', title:'Reunião Marketing', date:d, start:'09:00', end:'10:00', people:6, status:'approved', notes:'Reunião diária'},
+    {id:crypto.randomUUID(), roomId:'sala-5', userId:'demo', title:'Alinhamento Comercial', date:d, start:'15:30', end:'16:30', people:5, status:'approved', notes:''}
+  ];
 }
 
-function seedLocalData() {
-  const existing = storage.get("uf_bookings", null);
-  if (!existing) storage.set("uf_bookings", demoBookings);
-  state.bookings = storage.get("uf_bookings", demoBookings);
-  state.employees = storage.get("uf_employees", []);
+function setSession(user){ state.currentUser = user; localStorage.setItem('ultraReservaSession', user ? user.id : ''); render(); }
+function restoreSession(){ const id = localStorage.getItem('ultraReservaSession'); if(id) state.currentUser = data.users.find(u=>u.id===id) || null; }
+function toast(msg){ const el=document.getElementById('toast'); el.textContent=msg; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'), 2600); }
+function initials(name){ return name.split(' ').map(p=>p[0]).slice(0,2).join('').toUpperCase(); }
+function byId(id){ return document.getElementById(id); }
+function escapeHtml(str=''){ return String(str).replace(/[&<>'"]/g, s=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[s])); }
+function currentReservations(){ return data.reservations.filter(r => r.date===state.date && (state.room==='all' || r.roomId===state.room) && r.status!=='cancelled'); }
+function approvedRooms(){ return data.rooms.filter(r=>r.active); }
+function hasConflict(roomId,date,start,end,ignoreId=null){
+  const s=minutes(start), e=minutes(end);
+  return data.reservations.some(r => r.id!==ignoreId && r.roomId===roomId && r.date===date && r.status!=='cancelled' && Math.max(s,minutes(r.start)) < Math.min(e,minutes(r.end)));
 }
+function getUser(id){ return data.users.find(u=>u.id===id) || {name:'Usuário removido', email:''}; }
+function getRoom(id){ return data.rooms.find(r=>r.id===id) || {name:'Sala removida', capacity:0}; }
+function isAdmin(){ return state.currentUser?.role === 'admin'; }
 
-function subscribeFirebase() {
-  onSnapshot(collection(db, "bookings"), snapshot => {
-    state.bookings = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-    render();
-  });
-  onSnapshot(collection(db, "employees"), snapshot => {
-    state.employees = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-    render();
-  });
-}
-
-async function saveBooking(payload) {
-  const room = roomById(payload.roomId);
-  payload.roomName = room.name;
-  payload.people = Number(payload.people || 1);
-  payload.status = payload.status || "confirmada";
-
-  if (payload.people > room.capacity) {
-    alert(`A capacidade da ${room.name} é de ${room.capacity} pessoas.`);
-    return;
-  }
-  if (timeToMinutes(payload.startTime) >= timeToMinutes(payload.endTime)) {
-    alert("O horário final precisa ser maior que o horário inicial.");
-    return;
-  }
-
-  if (!firebaseEnabled) {
-    const conflict = state.bookings.find(b =>
-      b.id !== state.editingBookingId && b.roomId === payload.roomId && b.date === payload.date && b.status !== "cancelada" &&
-      overlaps(payload.startTime, payload.endTime, b.startTime, b.endTime)
-    );
-    if (conflict) return alert(`Conflito com: ${conflict.title} (${conflict.startTime} às ${conflict.endTime}).`);
-    if (state.editingBookingId) {
-      state.bookings = state.bookings.map(b => b.id === state.editingBookingId ? { ...b, ...payload } : b);
-    } else {
-      state.bookings.push({ id: crypto.randomUUID(), ...payload });
-    }
-    storage.set("uf_bookings", state.bookings);
-    closeModal();
-    render();
-    return;
-  }
-
-  const dayQuery = query(collection(db, "bookings"), where("roomId", "==", payload.roomId), where("date", "==", payload.date));
-  const snap = await getDocs(dayQuery);
-  const conflict = snap.docs.map(d => ({ id: d.id, ...d.data() })).find(b =>
-    b.id !== state.editingBookingId && b.status !== "cancelada" && overlaps(payload.startTime, payload.endTime, b.startTime, b.endTime)
-  );
-  if (conflict) return alert(`Conflito com: ${conflict.title} (${conflict.startTime} às ${conflict.endTime}).`);
-
-  if (state.editingBookingId) {
-    await updateDoc(doc(db, "bookings", state.editingBookingId), { ...payload, updatedAt: serverTimestamp() });
-  } else {
-    await addDoc(collection(db, "bookings"), { ...payload, createdAt: serverTimestamp() });
-  }
-  closeModal();
-}
-
-async function saveEmployee(payload) {
-  if (!payload.name || !payload.email) return alert("Preencha nome e e-mail.");
-  if (!firebaseEnabled) {
-    state.employees.push({ id: crypto.randomUUID(), ...payload });
-    storage.set("uf_employees", state.employees);
-    render();
-    return;
-  }
-  await addDoc(collection(db, "employees"), { ...payload, createdAt: serverTimestamp() });
-}
-
-async function removeBooking(id) {
-  if (!confirm("Deseja cancelar esta reserva?")) return;
-  if (!firebaseEnabled) {
-    state.bookings = state.bookings.map(b => b.id === id ? { ...b, status: "cancelada" } : b);
-    storage.set("uf_bookings", state.bookings);
-    render();
-    return;
-  }
-  await updateDoc(doc(db, "bookings", id), { status: "cancelada", updatedAt: serverTimestamp() });
-}
-
-async function deleteEmployee(id) {
-  if (!confirm("Deseja remover este cadastro?")) return;
-  if (!firebaseEnabled) {
-    state.employees = state.employees.filter(e => e.id !== id);
-    storage.set("uf_employees", state.employees);
-    render();
-    return;
-  }
-  await deleteDoc(doc(db, "employees", id));
-}
-
-function openModal(roomId = "sala-1", booking = null) {
-  state.editingBookingId = booking?.id || null;
-  const modal = document.querySelector("#bookingModal");
-  modal.classList.add("open");
-  const form = document.querySelector("#bookingForm");
-  form.roomId.value = booking?.roomId || roomId;
-  form.date.value = booking?.date || state.selectedDate;
-  form.startTime.value = booking?.startTime || "09:00";
-  form.endTime.value = booking?.endTime || "10:00";
-  form.title.value = booking?.title || "";
-  form.requester.value = booking?.requester || "";
-  form.email.value = booking?.email || "";
-  form.people.value = booking?.people || "1";
-  form.notes.value = booking?.notes || "";
-  form.status.value = booking?.status || "confirmada";
-  document.querySelector("#modalTitle").textContent = booking ? "Editar reserva" : "Nova reserva";
-}
-
-function closeModal() {
-  document.querySelector("#bookingModal")?.classList.remove("open");
-  state.editingBookingId = null;
-}
-
-function renderHeader() {
-  return `
-    <header class="topbar">
-      <div class="brand">
-        <img src="assets/logo-ultrafarma-com.png" alt="Ultrafarma" />
-        <span>Reserva de Salas</span>
-      </div>
-      <nav>
-        <button class="nav-btn ${state.view === "agenda" ? "active" : ""}" data-view="agenda">Agenda</button>
-        <button class="nav-btn ${state.view === "salas" ? "active" : ""}" data-view="salas">Salas</button>
-        <button class="nav-btn ${state.view === "cadastros" ? "active" : ""}" data-view="cadastros">Cadastros</button>
-      </nav>
-    </header>
-  `;
-}
-
-function renderHero() {
-  const totalToday = state.bookings.filter(b => b.date === state.selectedDate && b.status !== "cancelada").length;
-  const occupied = rooms.filter(room => bookingsForRoom(room.id).some(b => b.status !== "cancelada")).length;
-  return `
-    <section class="hero">
-      <div>
-        <p class="eyebrow">Sistema interno Ultrafarma</p>
-        <h1>Agendamento de salas de reunião e auditório</h1>
-        <p class="hero-text">Reserve salas, consulte disponibilidade em tempo real e evite conflitos de agenda.</p>
-        <div class="hero-actions">
-          <button class="primary" id="newBookingBtn">+ Nova reserva</button>
-          <button class="secondary" id="todayBtn">Ver hoje</button>
+function render(){
+  if(!state.currentUser) return renderLogin();
+  document.getElementById('app').innerHTML = `
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <img src="assets/logo-ultrafarma.png" alt="Ultrafarma" onerror="this.src='assets/logo-u.png'" />
+          <span class="brand-divider"></span><strong>Reserva de Salas</strong>
         </div>
+        <nav class="nav">
+          ${navButton('agenda','Agenda')}
+          ${navButton('mapa','Mapa ao vivo')}
+          ${navButton('salas','Salas')}
+          ${isAdmin()?navButton('admin','Admin'):''}
+        </nav>
+        <div class="userbox">
+          <div class="avatar">${initials(state.currentUser.name)}</div>
+          <div class="hide-mobile"><strong>${escapeHtml(state.currentUser.name)}</strong><br><span class="muted">${isAdmin()?'Administrador':'Colaborador'}</span></div>
+          <button class="btn-ghost" onclick="logout()">Sair</button>
+        </div>
+      </header>
+      <main class="container">${renderTab()}</main>
+    </div>
+    ${state.modal ? renderModal() : ''}`;
+}
+function navButton(tab,label){ return `<button class="${state.tab===tab?'active':''}" onclick="changeTab('${tab}')">${label}</button>`; }
+window.changeTab = tab => { state.tab=tab; render(); };
+window.logout = () => setSession(null);
+function renderTab(){
+  if(state.tab==='agenda') return renderAgenda();
+  if(state.tab==='mapa') return renderMap();
+  if(state.tab==='salas') return renderRooms();
+  if(state.tab==='admin' && isAdmin()) return renderAdmin();
+  return renderAgenda();
+}
+
+function renderLogin(){
+  document.getElementById('app').innerHTML = `
+  <div class="login-page">
+    <div class="login-card">
+      <div class="login-left">
+        <img src="assets/logo-ultrafarma.png" alt="Ultrafarma" onerror="this.src='assets/logo-u.png'" />
+        <span class="eyebrow">Sistema interno Ultrafarma</span>
+        <h1>Agendamento de salas com acesso restrito.</h1>
+        <p class="muted">O colaborador solicita cadastro, o administrador aprova e a agenda fica protegida para uso interno.</p>
+        <div class="notice" style="margin-top:28px"><b>Acesso demo:</b><br>Admin: admin@ultrafarma.com / admin123<br>Usuário: usuario@ultrafarma.com / 123456</div>
       </div>
-      <div class="stats-card">
-        <div><strong>${rooms.length}</strong><span>Espaços</span></div>
-        <div><strong>${totalToday}</strong><span>Reservas no dia</span></div>
-        <div><strong>${occupied}</strong><span>Salas com agenda</span></div>
-        <div><strong>${state.mode === "firebase" ? "Online" : "Demo"}</strong><span>Banco de dados</span></div>
-      </div>
-    </section>
-  `;
-}
-
-function renderFilters() {
-  return `
-    <section class="filters">
-      <label>Data <input type="date" id="dateFilter" value="${state.selectedDate}" /></label>
-      <label>Sala
-        <select id="roomFilter">
-          <option value="all">Todas as salas</option>
-          ${rooms.map(r => `<option value="${r.id}" ${state.selectedRoom === r.id ? "selected" : ""}>${r.name} — ${r.capacity} lugares</option>`).join("")}
-        </select>
-      </label>
-    </section>
-  `;
-}
-
-function renderAgenda() {
-  return `
-    ${renderHero()}
-    ${renderFilters()}
-    <section class="section-head">
-      <div>
-        <p class="eyebrow">Agenda</p>
-        <h2>${formatDate(state.selectedDate)}</h2>
-      </div>
-    </section>
-    <section class="timeline">
-      ${rooms
-        .filter(room => state.selectedRoom === "all" || room.id === state.selectedRoom)
-        .map(room => {
-          const list = bookingsForRoom(room.id);
-          return `
-            <article class="room-line">
-              <div class="room-line-head">
-                <img src="${room.image}" alt="${room.name}" />
-                <div><h3>${room.name}</h3><p>${room.capacity} lugares • Próximo horário: ${nextAvailability(room.id)}</p></div>
-                <button class="small primary" data-book-room="${room.id}">Reservar</button>
-              </div>
-              <div class="booking-list">
-                ${list.length ? list.map(b => `
-                  <div class="booking ${statusClass(b.status)}">
-                    <div class="booking-time">${b.startTime}<span>${b.endTime}</span></div>
-                    <div class="booking-body">
-                      <strong>${b.title}</strong>
-                      <p>${b.requester} • ${b.people} pessoa(s) • ${b.status}</p>
-                      ${b.notes ? `<small>${b.notes}</small>` : ""}
-                    </div>
-                    <div class="booking-actions">
-                      <button class="icon" data-edit="${b.id}">Editar</button>
-                      ${b.status !== "cancelada" ? `<button class="icon danger" data-cancel="${b.id}">Cancelar</button>` : ""}
-                    </div>
-                  </div>
-                `).join("") : `<div class="empty">Nenhuma reserva para esta sala nesta data.</div>`}
-              </div>
-            </article>
-          `;
-        }).join("")}
-    </section>
-  `;
-}
-
-function renderRooms() {
-  return `
-    <section class="section-head padded">
-      <div><p class="eyebrow">Espaços</p><h2>Salas disponíveis</h2></div>
-      <button class="primary" id="newBookingBtn">+ Nova reserva</button>
-    </section>
-    <section class="room-grid">
-      ${rooms.map(room => `
-        <article class="room-card">
-          <img src="${room.image}" alt="${room.name}" />
-          <div class="room-card-body">
-            <span class="badge">${room.type}</span>
-            <h3>${room.name}</h3>
-            <p class="capacity">${room.capacity} lugares</p>
-            <div class="chips">${room.resources.map(item => `<span>${item}</span>`).join("")}</div>
-            <button class="primary full" data-book-room="${room.id}">Reservar ${room.name}</button>
+      <div class="login-right">
+        <div class="tabs"><button id="loginTabBtn" class="active" onclick="switchAuth('login')">Entrar</button><button id="registerTabBtn" onclick="switchAuth('register')">Solicitar cadastro</button></div>
+        <form id="loginForm" class="form" onsubmit="doLogin(event)">
+          <div class="field"><label>E-mail</label><input required type="email" name="email" placeholder="seuemail@ultrafarma.com" /></div>
+          <div class="field"><label>Senha</label><input required type="password" name="password" placeholder="Sua senha" /></div>
+          <button class="btn-primary" type="submit">Entrar no sistema</button>
+        </form>
+        <form id="registerForm" class="form hidden" onsubmit="doRegister(event)">
+          <div class="grid two">
+            <div class="field"><label>Nome completo</label><input required name="name" /></div>
+            <div class="field"><label>Departamento</label><input required name="department" placeholder="Ex.: Marketing" /></div>
           </div>
-        </article>
-      `).join("")}
-    </section>
-  `;
-}
-
-function renderCadastros() {
-  return `
-    <section class="section-head padded">
-      <div><p class="eyebrow">Cadastros</p><h2>Colaboradores autorizados</h2></div>
-    </section>
-    <section class="cadastro-layout">
-      <form class="employee-form" id="employeeForm">
-        <h3>Novo colaborador</h3>
-        <label>Nome<input name="name" placeholder="Nome completo" required /></label>
-        <label>E-mail<input name="email" type="email" placeholder="nome@ultrafarma.com.br" required /></label>
-        <label>Departamento<input name="department" placeholder="Marketing, RH, Comercial..." /></label>
-        <button class="primary full">Cadastrar</button>
-      </form>
-      <div class="employees">
-        ${state.employees.length ? state.employees.map(e => `
-          <div class="employee">
-            <div><strong>${e.name}</strong><p>${e.email} ${e.department ? `• ${e.department}` : ""}</p></div>
-            <button class="icon danger" data-delete-employee="${e.id}">Remover</button>
-          </div>
-        `).join("") : `<div class="empty big">Nenhum cadastro ainda. Cadastre colaboradores para facilitar as reservas.</div>`}
-      </div>
-    </section>
-  `;
-}
-
-function renderModal() {
-  return `
-    <div class="modal" id="bookingModal">
-      <div class="modal-backdrop" data-close-modal></div>
-      <div class="modal-card">
-        <button class="close" data-close-modal>×</button>
-        <h2 id="modalTitle">Nova reserva</h2>
-        <form id="bookingForm" class="booking-form">
-          <label>Sala<select name="roomId">${rooms.map(r => `<option value="${r.id}">${r.name} — ${r.capacity} lugares</option>`).join("")}</select></label>
-          <label>Data<input type="date" name="date" required /></label>
-          <div class="two-cols">
-            <label>Início<input type="time" name="startTime" min="07:00" max="22:00" step="900" required /></label>
-            <label>Fim<input type="time" name="endTime" min="07:00" max="22:00" step="900" required /></label>
-          </div>
-          <label>Título da reunião<input name="title" placeholder="Ex.: Alinhamento semanal" required /></label>
-          <div class="two-cols">
-            <label>Responsável<input name="requester" placeholder="Nome" required /></label>
-            <label>E-mail<input type="email" name="email" placeholder="email@ultrafarma.com.br" required /></label>
-          </div>
-          <div class="two-cols">
-            <label>Pessoas<input type="number" min="1" name="people" required /></label>
-            <label>Status<select name="status"><option value="confirmada">Confirmada</option><option value="pendente">Pendente</option><option value="cancelada">Cancelada</option></select></label>
-          </div>
-          <label>Observações<textarea name="notes" rows="3" placeholder="Equipamentos, visitantes, café, etc."></textarea></label>
-          <button class="primary full">Salvar reserva</button>
+          <div class="field"><label>E-mail corporativo</label><input required type="email" name="email" /></div>
+          <div class="field"><label>Senha</label><input required type="password" minlength="6" name="password" /></div>
+          <button class="btn-primary" type="submit">Enviar para aprovação</button>
+          <div class="notice">Após o envio, o administrador precisa aprovar seu acesso em <b>Admin &gt; Pessoas</b>.</div>
         </form>
       </div>
     </div>
-  `;
+  </div>`;
+}
+window.switchAuth = type => {
+  byId('loginForm').classList.toggle('hidden', type!=='login'); byId('registerForm').classList.toggle('hidden', type!=='register');
+  byId('loginTabBtn').classList.toggle('active', type==='login'); byId('registerTabBtn').classList.toggle('active', type==='register');
+};
+window.doLogin = e => {
+  e.preventDefault(); const fd=new FormData(e.target); const email=String(fd.get('email')).trim().toLowerCase(); const pass=fd.get('password');
+  const user=data.users.find(u=>u.email.toLowerCase()===email && u.password===pass);
+  if(!user) return toast('E-mail ou senha inválidos.');
+  if(user.status!=='approved') return toast(user.status==='pending'?'Cadastro aguardando aprovação.':'Cadastro bloqueado pelo admin.');
+  setSession(user);
+};
+window.doRegister = e => {
+  e.preventDefault(); const fd=new FormData(e.target); const email=String(fd.get('email')).trim().toLowerCase();
+  if(data.users.some(u=>u.email.toLowerCase()===email)) return toast('Este e-mail já está cadastrado.');
+  data.users.push({id:crypto.randomUUID(), name:fd.get('name'), email, password:fd.get('password'), department:fd.get('department'), role:'user', status:'pending'}); save(); e.target.reset(); switchAuth('login'); toast('Cadastro enviado. Aguarde aprovação do administrador.');
+};
+
+function renderAgenda(){
+  const rooms=approvedRooms();
+  return `
+  <section class="hero">
+    <div><span class="eyebrow">Sistema interno Ultrafarma</span><h1>Agendamento de salas de reunião e auditório</h1><p>Reserve salas, consulte disponibilidade em tempo real e evite conflitos de agenda.</p><div class="hero-actions"><button class="btn-primary" onclick="openReservation()">+ Nova reserva</button><button class="btn-ghost" onclick="setToday()">Ver hoje</button></div></div>
+    <div class="metrics"><div class="metric"><b>${rooms.length}</b><span>Espaços ativos</span></div><div class="metric"><b>${currentReservations().length}</b><span>Reservas na seleção</span></div><div class="metric"><b>${data.users.filter(u=>u.status==='approved').length}</b><span>Pessoas aprovadas</span></div><div class="metric"><b>${window.USE_FIREBASE?'Firebase':'Demo'}</b><span>Banco de dados</span></div></div>
+  </section>
+  <section class="panel pad">
+    ${renderFilters()}
+    <div class="section-title"><div><span class="eyebrow">Agenda</span><h2>${dateLabel(state.date)}</h2></div></div>
+    ${state.view==='day' ? renderDayView() : state.view==='week' ? renderWeekView() : renderMonthView()}
+  </section>`;
+}
+function renderFilters(){
+  return `<div class="filters">
+    <div class="field"><label>Data</label><input type="date" value="${state.date}" onchange="setDate(this.value)"></div>
+    <div class="field"><label>Sala</label><select onchange="setRoom(this.value)"><option value="all">Todas as salas</option>${approvedRooms().map(r=>`<option value="${r.id}" ${state.room===r.id?'selected':''}>${r.name}</option>`).join('')}</select></div>
+    <div class="segmented"><button class="${state.view==='day'?'active':''}" onclick="setView('day')">Dia</button><button class="${state.view==='week'?'active':''}" onclick="setView('week')">Semana</button><button class="${state.view==='month'?'active':''}" onclick="setView('month')">Mês</button></div>
+  </div>`;
+}
+window.setDate = v => { state.date=v; render(); };
+window.setRoom = v => { state.room=v; render(); };
+window.setView = v => { state.view=v; render(); };
+window.setToday = () => { state.date=todayISO(); render(); };
+function renderDayView(){
+  const rooms = state.room==='all' ? approvedRooms() : approvedRooms().filter(r=>r.id===state.room);
+  return `<div class="room-list">${rooms.map(room=>renderRoomDay(room)).join('')}</div>`;
+}
+function renderRoomDay(room){
+  const res = data.reservations.filter(r=>r.roomId===room.id && r.date===state.date && r.status!=='cancelled').sort((a,b)=>minutes(a.start)-minutes(b.start));
+  const next = nextFree(room.id, state.date);
+  return `<article class="room-card"><div class="room-head"><img class="room-photo" src="${room.image}" alt="${room.name}"><div><h3>${room.name}</h3><div class="muted">${room.capacity} lugares • Próximo horário: ${next}</div></div><button class="btn-primary" onclick="openReservation('${room.id}')">Reservar</button></div>${res.length?res.map(renderReservationRow).join(''):`<div class="empty">Nenhuma reserva para esta sala nesta data.</div>`}</article>`;
+}
+function nextFree(roomId,date){
+  const now = new Date(); let start = date===todayISO()? Math.max(minutes(data.settings.open), Math.ceil((now.getHours()*60+now.getMinutes())/30)*30) : minutes(data.settings.open);
+  const endDay=minutes(data.settings.close);
+  for(let s=start; s+30<=endDay; s+=30){ if(!hasConflict(roomId,date,hm(s),hm(s+30))) return hm(s); }
+  return 'Sem horário';
+}
+function renderReservationRow(r){
+  const user=getUser(r.userId);
+  return `<div class="reservation-row"><div class="time">${r.start}</div><div><strong>${escapeHtml(r.title)}</strong><br><span class="muted">${r.start}–${r.end} • ${r.people} pessoa(s) • ${escapeHtml(user.name)}</span></div><div>${(isAdmin() || r.userId===state.currentUser.id)?`<button class="btn-danger btn-small" onclick="cancelReservation('${r.id}')">Cancelar</button>`:''}</div></div>`;
+}
+function renderWeekView(){
+  const base=new Date(state.date+'T12:00:00'); const monday=new Date(base); monday.setDate(base.getDate()-((base.getDay()+6)%7));
+  const days=Array.from({length:7},(_,i)=>{const d=new Date(monday); d.setDate(monday.getDate()+i); return d.toISOString().slice(0,10);});
+  const times=[]; for(let m=minutes(data.settings.open);m<minutes(data.settings.close);m+=60) times.push(hm(m));
+  return `<div class="week-grid"><div></div>${days.map(d=>`<div class="week-head">${new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</div>`).join('')}${times.map(t=>`<div class="week-time">${t}</div>${days.map(d=>renderWeekSlot(d,t)).join('')}`).join('')}</div>`;
+}
+function renderWeekSlot(date,time){
+  const s=minutes(time), e=s+60; const list=data.reservations.filter(r=>r.date===date && (state.room==='all'||r.roomId===state.room) && r.status!=='cancelled' && Math.max(s,minutes(r.start))<Math.min(e,minutes(r.end)));
+  return `<div class="week-slot ${list.length?'busy':''}">${list.slice(0,2).map(r=>`${getRoom(r.roomId).name}: ${escapeHtml(r.title)}`).join('<br>') || 'Livre'}</div>`;
+}
+function renderMonthView(){
+  const current=new Date(state.date+'T12:00:00'); const first=new Date(current.getFullYear(), current.getMonth(), 1); const start=new Date(first); start.setDate(first.getDate()-first.getDay());
+  const cells=Array.from({length:42},(_,i)=>{const d=new Date(start); d.setDate(start.getDate()+i); return d;});
+  return `<div class="calendar-month">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(x=>`<div class="week-head">${x}</div>`).join('')}${cells.map(d=>{const iso=d.toISOString().slice(0,10); const list=data.reservations.filter(r=>r.date===iso && (state.room==='all'||r.roomId===state.room) && r.status!=='cancelled'); return `<div class="day-cell ${d.getMonth()!==current.getMonth()?'off':''}" onclick="setDate('${iso}');setView('day')"><strong>${d.getDate()}</strong>${list.slice(0,4).map(r=>`<div class="mini-event">${getRoom(r.roomId).name} ${r.start}</div>`).join('')}${list.length>4?`<div class="mini-event">+${list.length-4} reserva(s)</div>`:''}</div>`}).join('')}</div>`;
 }
 
-function render() {
-  const view = state.view === "agenda" ? renderAgenda() : state.view === "salas" ? renderRooms() : renderCadastros();
-  document.querySelector("#app").innerHTML = `
-    ${renderHeader()}
-    <main>${view}</main>
-    ${renderModal()}
-  `;
-  bindEvents();
+function renderMap(){
+  const now=new Date(); const currentM= state.date===todayISO() ? now.getHours()*60+now.getMinutes() : minutes(data.settings.open);
+  return `<div class="section-title"><div><span class="eyebrow">Tempo real</span><h2>Mapa ao vivo das reservas</h2><p class="muted">Status baseado na data selecionada e nos horários reservados. Verde livre, amarelo próxima reserva, vermelho ocupado.</p></div><button class="btn-primary" onclick="openReservation()">+ Reservar</button></div><section class="panel pad">${renderFilters()}<div class="map-wrap"><div class="live-map"><div class="floor-outline"></div>${approvedRooms().map(room=>renderMapRoom(room,currentM)).join('')}</div><div class="map-side grid">${approvedRooms().map(room=>renderMapLegend(room,currentM)).join('')}</div></div></section>`;
+}
+function roomStatus(roomId,m){
+  const res=data.reservations.filter(r=>r.roomId===roomId && r.date===state.date && r.status!=='cancelled');
+  const busy=res.find(r=>minutes(r.start)<=m && minutes(r.end)>m); if(busy) return {cls:'busy', label:'Ocupada agora', res:busy};
+  const soon=res.find(r=>minutes(r.start)>m && minutes(r.start)<=m+60); if(soon) return {cls:'soon', label:`Próxima às ${soon.start}`, res:soon};
+  return {cls:'available', label:'Disponível agora', res:null};
+}
+function renderMapRoom(room,m){ const st=roomStatus(room.id,m); return `<button class="map-room ${st.cls}" data-room="${room.id}" onclick="openReservation('${room.id}')"><h4><span class="dot"></span>${room.name}</h4><p>${st.label}</p><p>${room.capacity} lugares</p></button>`; }
+function renderMapLegend(room,m){ const st=roomStatus(room.id,m); return `<div class="room-card"><div class="room-head" style="grid-template-columns:90px 1fr"><img class="room-photo" src="${room.image}" alt="${room.name}"><div><h3>${room.name}</h3><span class="badge ${st.cls==='busy'?'bad':st.cls==='soon'?'wait':'ok'}">${st.label}</span><div class="muted" style="margin-top:8px">${room.capacity} lugares • ${escapeHtml(room.location)}</div></div></div></div>`; }
+
+function renderRooms(){
+  return `<div class="section-title"><div><span class="eyebrow">Espaços</span><h2>Salas e auditório</h2></div>${isAdmin()?`<button class="btn-primary" onclick="openRoomForm()">+ Nova sala/espaço</button>`:''}</div><div class="grid three">${approvedRooms().map(room=>`<article class="room-card"><img src="${room.image}" alt="${room.name}" style="height:230px;width:100%;object-fit:cover"><div class="panel pad" style="border:0;box-shadow:none"><h3 style="margin:0;color:var(--blue);font-size:26px">${room.name}</h3><p class="muted">${room.capacity} lugares • ${escapeHtml(room.location)}</p><p>${escapeHtml(room.resources)}</p><button class="btn-primary" onclick="openReservation('${room.id}')">Reservar este espaço</button></div></article>`).join('')}</div>`;
 }
 
-function bindEvents() {
-  document.querySelectorAll(".nav-btn").forEach(btn => btn.addEventListener("click", () => { state.view = btn.dataset.view; render(); }));
-  document.querySelector("#dateFilter")?.addEventListener("change", e => { state.selectedDate = e.target.value; render(); });
-  document.querySelector("#roomFilter")?.addEventListener("change", e => { state.selectedRoom = e.target.value; render(); });
-  document.querySelectorAll("#newBookingBtn").forEach(btn => btn.addEventListener("click", () => openModal(state.selectedRoom === "all" ? "sala-1" : state.selectedRoom)));
-  document.querySelector("#todayBtn")?.addEventListener("click", () => { state.selectedDate = todayISO(); render(); });
-  document.querySelectorAll("[data-book-room]").forEach(btn => btn.addEventListener("click", () => openModal(btn.dataset.bookRoom)));
-  document.querySelectorAll("[data-close-modal]").forEach(el => el.addEventListener("click", closeModal));
-  document.querySelectorAll("[data-cancel]").forEach(btn => btn.addEventListener("click", () => removeBooking(btn.dataset.cancel)));
-  document.querySelectorAll("[data-edit]").forEach(btn => btn.addEventListener("click", () => openModal("sala-1", state.bookings.find(b => b.id === btn.dataset.edit))));
-  document.querySelector("#bookingForm")?.addEventListener("submit", async e => {
-    e.preventDefault();
-    const payload = Object.fromEntries(new FormData(e.target).entries());
-    await saveBooking(payload);
-  });
-  document.querySelector("#employeeForm")?.addEventListener("submit", async e => {
-    e.preventDefault();
-    const payload = Object.fromEntries(new FormData(e.target).entries());
-    await saveEmployee(payload);
-    e.target.reset();
-  });
-  document.querySelectorAll("[data-delete-employee]").forEach(btn => btn.addEventListener("click", () => deleteEmployee(btn.dataset.deleteEmployee)));
+function renderAdmin(){
+  return `<div class="section-title"><div><span class="eyebrow">Administração</span><h2>Painel do administrador</h2></div></div><div class="admin-layout"><aside class="side">${adminBtn('dashboard','Visão geral')}${adminBtn('people','Pessoas')}${adminBtn('reservations','Reservas')}${adminBtn('rooms','Salas e espaços')}${adminBtn('settings','Horários e regras')}</aside><section class="panel pad">${renderAdminTab()}</section></div>`;
 }
-
-async function boot() {
-  try {
-    if (firebaseEnabled) {
-      const firebaseApp = await import("https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js");
-      const firestore = await import("https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js");
-
-      initializeApp = firebaseApp.initializeApp;
-      getFirestore = firestore.getFirestore;
-      collection = firestore.collection;
-      doc = firestore.doc;
-      addDoc = firestore.addDoc;
-      updateDoc = firestore.updateDoc;
-      deleteDoc = firestore.deleteDoc;
-      query = firestore.query;
-      where = firestore.where;
-      onSnapshot = firestore.onSnapshot;
-      getDocs = firestore.getDocs;
-      serverTimestamp = firestore.serverTimestamp;
-
-      const app = initializeApp(window.firebaseConfig);
-      db = getFirestore(app);
-      subscribeFirebase();
-    } else {
-      seedLocalData();
-    }
-    render();
-  } catch (error) {
-    console.error("Erro ao iniciar o sistema:", error);
-    document.querySelector("#app").innerHTML = `
-      <div style="font-family: Arial, sans-serif; padding: 40px; max-width: 780px; margin: auto;">
-        <img src="assets/logo-ultrafarma.png" alt="Ultrafarma" style="height: 46px; margin-bottom: 24px;">
-        <h1 style="color:#003f73;">Não foi possível carregar o sistema</h1>
-        <p>Verifique se todos os arquivos foram enviados para o GitHub na raiz do projeto: <strong>index.html</strong>, <strong>app.js</strong>, <strong>styles.css</strong>, <strong>firebase-config.js</strong> e a pasta <strong>assets</strong>.</p>
-        <p>Detalhe técnico: ${error.message}</p>
-      </div>`;
-  }
+function adminBtn(id,label){ return `<button class="${state.adminTab===id?'active':''}" onclick="setAdminTab('${id}')">${label}</button>`; }
+window.setAdminTab = id => { state.adminTab=id; render(); };
+function renderAdminTab(){
+  if(state.adminTab==='people') return renderPeopleAdmin();
+  if(state.adminTab==='reservations') return renderReservationsAdmin();
+  if(state.adminTab==='rooms') return renderRoomsAdmin();
+  if(state.adminTab==='settings') return renderSettingsAdmin();
+  return `<div class="grid three"><div class="metric"><b>${data.users.filter(u=>u.status==='pending').length}</b><span>Cadastros pendentes</span></div><div class="metric"><b>${data.reservations.filter(r=>r.date===todayISO() && r.status!=='cancelled').length}</b><span>Reservas hoje</span></div><div class="metric"><b>${data.rooms.filter(r=>r.active).length}</b><span>Espaços ativos</span></div></div><div class="notice" style="margin-top:20px">Neste painel você aprova usuários, cadastra novas salas, edita horários de funcionamento, gerencia reservas e acompanha a ocupação por sala.</div>`;
 }
+function renderPeopleAdmin(){
+  return `<div class="section-title"><h2>Pessoas cadastradas</h2></div><div class="table-wrap"><table class="table"><thead><tr><th>Nome</th><th>E-mail</th><th>Departamento</th><th>Perfil</th><th>Status</th><th>Ações</th></tr></thead><tbody>${data.users.map(u=>`<tr><td>${escapeHtml(u.name)}</td><td>${escapeHtml(u.email)}</td><td>${escapeHtml(u.department||'-')}</td><td>${u.role}</td><td><span class="badge ${u.status==='approved'?'ok':u.status==='pending'?'wait':'bad'}">${u.status}</span></td><td>${u.status!=='approved'?`<button class="btn-ok btn-small" onclick="setUserStatus('${u.id}','approved')">Aprovar</button>`:''} ${u.status!=='blocked'?`<button class="btn-danger btn-small" onclick="setUserStatus('${u.id}','blocked')">Bloquear</button>`:''} ${u.role==='user'?`<button class="btn-ghost btn-small" onclick="makeAdmin('${u.id}')">Admin</button>`:''}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function renderReservationsAdmin(){
+  return `<div class="section-title"><h2>Gestão de reservas</h2><button class="btn-primary" onclick="openReservation()">+ Reserva</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Data</th><th>Horário</th><th>Sala</th><th>Título</th><th>Pessoa</th><th>Ações</th></tr></thead><tbody>${data.reservations.filter(r=>r.status!=='cancelled').sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start)).map(r=>`<tr><td>${new Date(r.date+'T12:00:00').toLocaleDateString('pt-BR')}</td><td>${r.start}–${r.end}</td><td>${getRoom(r.roomId).name}</td><td>${escapeHtml(r.title)}</td><td>${escapeHtml(getUser(r.userId).name)}</td><td><button class="btn-danger btn-small" onclick="cancelReservation('${r.id}')">Cancelar</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+function renderRoomsAdmin(){
+  return `<div class="section-title"><h2>Salas e espaços</h2><button class="btn-primary" onclick="openRoomForm()">+ Novo espaço</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Espaço</th><th>Capacidade</th><th>Local</th><th>Status</th><th>Ações</th></tr></thead><tbody>${data.rooms.map(r=>`<tr><td>${escapeHtml(r.name)}</td><td>${r.capacity}</td><td>${escapeHtml(r.location)}</td><td><span class="badge ${r.active?'ok':'bad'}">${r.active?'Ativa':'Inativa'}</span></td><td><button class="btn-ghost btn-small" onclick="openRoomForm('${r.id}')">Editar</button> <button class="btn-danger btn-small" onclick="toggleRoom('${r.id}')">${r.active?'Inativar':'Ativar'}</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+function renderSettingsAdmin(){
+  const s=data.settings;
+  return `<h2 style="color:var(--blue);margin-top:0">Horários e regras</h2><form class="form" onsubmit="saveSettings(event)"><div class="grid two"><div class="field"><label>Abre às</label><input type="time" name="open" value="${s.open}"></div><div class="field"><label>Fecha às</label><input type="time" name="close" value="${s.close}"></div><div class="field"><label>Duração mínima, em minutos</label><input type="number" name="minDuration" value="${s.minDuration}"></div><div class="field"><label>Duração máxima, em minutos</label><input type="number" name="maxDuration" value="${s.maxDuration}"></div></div><button class="btn-primary">Salvar regras</button></form>`;
+}
+window.setUserStatus=(id,status)=>{ const u=data.users.find(x=>x.id===id); if(u){u.status=status; save(); render(); toast('Status atualizado.');} };
+window.makeAdmin=id=>{ const u=data.users.find(x=>x.id===id); if(u){u.role='admin'; u.status='approved'; save(); render(); toast('Usuário promovido a admin.');} };
+window.toggleRoom=id=>{ const r=data.rooms.find(x=>x.id===id); if(r){r.active=!r.active; save(); render();} };
+window.saveSettings=e=>{ e.preventDefault(); const fd=new FormData(e.target); data.settings={...data.settings, open:fd.get('open'), close:fd.get('close'), minDuration:Number(fd.get('minDuration')), maxDuration:Number(fd.get('maxDuration'))}; save(); render(); toast('Regras salvas.'); };
 
-boot();
+window.openReservation = (roomId='') => { state.modal={type:'reservation', roomId: roomId || (state.room==='all'?'':state.room)}; render(); };
+window.openRoomForm = (id='') => { state.modal={type:'room', id}; render(); };
+window.closeModal = () => { state.modal=null; render(); };
+function renderModal(){
+  if(state.modal.type==='room') return renderRoomModal();
+  return renderReservationModal();
+}
+function renderReservationModal(){
+  const roomOptions=approvedRooms().map(r=>`<option value="${r.id}" ${state.modal.roomId===r.id?'selected':''}>${r.name} • ${r.capacity} lugares</option>`).join('');
+  return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h3>Nova reserva</h3><button class="close" onclick="closeModal()">×</button></div><form class="form" onsubmit="saveReservation(event)"><div class="field"><label>Sala/espaço</label><select required name="roomId"><option value="">Selecione</option>${roomOptions}</select></div><div class="field"><label>Título da reunião</label><input required name="title" placeholder="Ex.: Reunião de Marketing"></div><div class="grid three"><div class="field"><label>Data</label><input required type="date" name="date" value="${state.date}"></div><div class="field"><label>Início</label><input required type="time" name="start" value="09:00"></div><div class="field"><label>Fim</label><input required type="time" name="end" value="10:00"></div></div><div class="field"><label>Quantidade de pessoas</label><input required type="number" min="1" name="people" value="2"></div><div class="field"><label>Observações</label><textarea name="notes" placeholder="Equipamentos, pauta ou detalhes adicionais"></textarea></div><button class="btn-primary">Confirmar reserva</button></form></div></div>`;
+}
+window.saveReservation=e=>{
+  e.preventDefault(); const fd=new FormData(e.target); const room=getRoom(fd.get('roomId')); const start=fd.get('start'), end=fd.get('end'), date=fd.get('date'); const people=Number(fd.get('people'));
+  if(minutes(start)>=minutes(end)) return toast('O horário final precisa ser maior que o inicial.');
+  if(minutes(start)<minutes(data.settings.open) || minutes(end)>minutes(data.settings.close)) return toast(`Use horários entre ${data.settings.open} e ${data.settings.close}.`);
+  if(minutes(end)-minutes(start)<data.settings.minDuration || minutes(end)-minutes(start)>data.settings.maxDuration) return toast(`Duração permitida: ${data.settings.minDuration} a ${data.settings.maxDuration} minutos.`);
+  if(people>room.capacity) return toast(`A capacidade de ${room.name} é de ${room.capacity} lugares.`);
+  if(hasConflict(room.id,date,start,end)) return toast('Conflito de horário nesta sala. Escolha outro período.');
+  data.reservations.push({id:crypto.randomUUID(), roomId:room.id, userId:state.currentUser.id, title:fd.get('title'), date, start, end, people, notes:fd.get('notes'), status:'approved'}); save(); state.date=date; state.room=room.id; state.modal=null; render(); toast('Reserva confirmada.');
+};
+function renderRoomModal(){
+  const r = data.rooms.find(x=>x.id===state.modal.id) || {name:'',capacity:4,location:'',resources:'',image:'assets/sala-1.jpeg',active:true};
+  return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h3>${state.modal.id?'Editar':'Nova'} sala/espaço</h3><button class="close" onclick="closeModal()">×</button></div><form class="form" onsubmit="saveRoom(event)"><input type="hidden" name="id" value="${state.modal.id||''}"><div class="grid two"><div class="field"><label>Nome</label><input required name="name" value="${escapeHtml(r.name)}"></div><div class="field"><label>Capacidade</label><input required type="number" name="capacity" min="1" value="${r.capacity}"></div></div><div class="field"><label>Localização</label><input name="location" value="${escapeHtml(r.location)}"></div><div class="field"><label>Foto/URL da imagem</label><input name="image" value="${escapeHtml(r.image)}"><small class="muted">Para novas fotos, envie a imagem para a pasta assets e informe o caminho. Ex.: assets/nova-sala.jpeg</small></div><div class="field"><label>Recursos</label><textarea name="resources">${escapeHtml(r.resources)}</textarea></div><button class="btn-primary">Salvar espaço</button></form></div></div>`;
+}
+window.saveRoom=e=>{
+  e.preventDefault(); const fd=new FormData(e.target); const id=fd.get('id') || fd.get('name').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  const room={id, name:fd.get('name'), capacity:Number(fd.get('capacity')), location:fd.get('location'), image:fd.get('image'), resources:fd.get('resources'), active:true};
+  const i=data.rooms.findIndex(r=>r.id===id); if(i>=0) data.rooms[i]={...data.rooms[i],...room}; else data.rooms.push(room);
+  save(); state.modal=null; render(); toast('Sala salva.');
+};
+window.cancelReservation=id=>{ const r=data.reservations.find(x=>x.id===id); if(r && confirm('Cancelar esta reserva?')){ r.status='cancelled'; save(); render(); toast('Reserva cancelada.'); } };
+
+restoreSession();
+render();

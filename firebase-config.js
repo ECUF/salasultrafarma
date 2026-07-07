@@ -1,6 +1,6 @@
-// Cole aqui as configurações do Firebase do seu projeto.
-// Caminho no Firebase: Project settings > General > Your apps > Web app > SDK setup and configuration.
-// Enquanto estiver vazio, o sistema funciona em modo demonstração usando localStorage do navegador.
+// Para usar com Firebase, preencha abaixo e ative window.USE_FIREBASE = true.
+// Enquanto estiver false, o sistema roda em modo demonstração via localStorage.
+window.USE_FIREBASE = false;
 
 window.firebaseConfig = {
   apiKey: "",

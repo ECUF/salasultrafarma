@@ -14,12 +14,12 @@ function img(src, alt='', cls='', style=''){
   return `<img ${cls?`class="${cls}"`:''} src="${src}" alt="${escapeHtml(alt)}" ${style?`style="${style}"`:''} onerror="this.onerror=null;this.src='${fallback}'">`;
 }
 const roomsSeed = [
-  { id:'sala-1', name:'Sala 1', capacity:4, image:'assets/sala-1.jpeg', location:'Administrativo', active:true, resources:'TV, mesa, cadeiras e quadro' },
-  { id:'sala-7', name:'Sala 7', capacity:4, image:'assets/sala-7.jpeg', location:'Administrativo', active:true, resources:'TV, mesa, cadeiras e ar-condicionado' },
-  { id:'sala-4', name:'Sala 4', capacity:8, image:'assets/sala-4.jpeg', location:'Administrativo', active:true, resources:'Mesa executiva, conferência, quadro e ar-condicionado' },
-  { id:'sala-5', name:'Sala 5', capacity:8, image:'assets/sala-5.jpeg', location:'Administrativo', active:true, resources:'Mesa executiva, conferência, quadro e ar-condicionado' },
-  { id:'sala-8', name:'Sala 8', capacity:4, image:'assets/sala-8.jpeg', location:'Administrativo', active:true, resources:'Mesa, cadeiras e espaço reservado' },
-  { id:'auditorio', name:'Auditório', capacity:100, image:'assets/mapa-referencia.png', location:'Eventos', active:true, resources:'Auditório para eventos, treinamentos e apresentações' }
+  { id:'sala-1', name:'Sala 1', capacity:4, image:'assets/sala-1.jpeg', images:['assets/sala-1.jpeg'], location:'Administrativo', active:true, resources:'TV, mesa, cadeiras e quadro' },
+  { id:'sala-7', name:'Sala 7', capacity:4, image:'assets/sala-7.jpeg', images:['assets/sala-7.jpeg'], location:'Administrativo', active:true, resources:'TV, mesa, cadeiras e ar-condicionado' },
+  { id:'sala-4', name:'Sala 4', capacity:8, image:'assets/sala-4.jpeg', images:['assets/sala-4.jpeg','assets/sala-5.jpeg'], location:'Administrativo', active:true, resources:'Mesa executiva, conferência, quadro e ar-condicionado' },
+  { id:'sala-5', name:'Sala 5', capacity:8, image:'assets/sala-5.jpeg', images:['assets/sala-5.jpeg','assets/sala-4.jpeg'], location:'Administrativo', active:true, resources:'Mesa executiva, conferência, quadro e ar-condicionado' },
+  { id:'sala-8', name:'Sala 8', capacity:4, image:'assets/sala-8.jpeg', images:['assets/sala-8.jpeg'], location:'Administrativo', active:true, resources:'Mesa, cadeiras e espaço reservado' },
+  { id:'auditorio', name:'Auditório', capacity:100, image:'assets/mapa-referencia.png', images:['assets/mapa-referencia.png'], location:'Eventos', active:true, resources:'Auditório para eventos, treinamentos e apresentações' }
 ];
 const usersSeed = [
   { id:'admin', name:'Administrador Ultrafarma', email:'admin@ultrafarma.com', password:'admin123', role:'admin', status:'approved', department:'Marketing' },
@@ -84,9 +84,7 @@ function render(){
           ${navButton('salas','Salas')}
           ${isAdmin()?navButton('admin','Admin'):''}
         </nav>
-        <div class="userbox">
-          <div class="avatar">${initials(state.currentUser.name)}</div>
-          <div class="hide-mobile"><strong>${escapeHtml(state.currentUser.name)}</strong><br><span class="muted">${isAdmin()?'Administrador':'Colaborador'}</span></div>
+        <div class="userbox compact-userbox">
           <button class="btn-ghost" onclick="logout()">Sair</button>
         </div>
       </header>
@@ -157,9 +155,8 @@ window.doRegister = e => {
 function renderAgenda(){
   const rooms=approvedRooms();
   return `
-  <section class="hero">
+  <section class="hero hero-simple">
     <div><span class="eyebrow">Sistema interno Ultrafarma</span><h1>Agendamento de salas de reunião e auditório</h1><p>Reserve salas, consulte disponibilidade em tempo real e evite conflitos de agenda.</p><div class="hero-actions"><button class="btn-primary" onclick="openReservation()">+ Nova reserva</button><button class="btn-ghost" onclick="setToday()">Ver hoje</button></div></div>
-    <div class="metrics"><div class="metric"><b>${rooms.length}</b><span>Espaços ativos</span></div><div class="metric"><b>${currentReservations().length}</b><span>Reservas na seleção</span></div><div class="metric"><b>${data.users.filter(u=>u.status==='approved').length}</b><span>Pessoas aprovadas</span></div><div class="metric"><b>${window.USE_FIREBASE?'Firebase':'Demo'}</b><span>Banco de dados</span></div></div>
   </section>
   <section class="panel pad">
     ${renderFilters()}
@@ -215,7 +212,13 @@ function renderMonthView(){
 
 function renderMap(){
   const now=new Date(); const currentM= state.date===todayISO() ? now.getHours()*60+now.getMinutes() : minutes(data.settings.open);
-  return `<div class="section-title"><div><span class="eyebrow">Tempo real</span><h2>Mapa ao vivo das reservas</h2><p class="muted">Status baseado na data selecionada e nos horários reservados. Verde livre, amarelo próxima reserva, vermelho ocupado.</p></div><button class="btn-primary" onclick="openReservation()">+ Reservar</button></div><section class="panel pad">${renderFilters()}<div class="map-wrap"><div class="live-map"><div class="floor-outline"></div>${approvedRooms().map(room=>renderMapRoom(room,currentM)).join('')}</div><div class="map-side grid">${approvedRooms().map(room=>renderMapLegend(room,currentM)).join('')}</div></div></section>`;
+  return `<div class="section-title"><div><span class="eyebrow">Tempo real</span><h2>Mapa ao vivo das reservas</h2><p class="muted">Clique em uma sala para ver quem reservou, horário, duração, quantidade de pessoas e observações.</p></div></div><section class="panel pad">${renderMapFilters()}<div class="map-wrap"><div class="live-map"><div class="floor-outline"></div>${approvedRooms().map(room=>renderMapRoom(room,currentM)).join('')}</div><div class="map-side grid">${approvedRooms().map(room=>renderMapLegend(room,currentM)).join('')}</div></div></section>`;
+}
+function renderMapFilters(){
+  return `<div class="filters map-filters">
+    <div class="field"><label>Data</label><input type="date" value="${state.date}" onchange="setDate(this.value)"></div>
+    <div class="field"><label>Sala</label><select onchange="setRoom(this.value)"><option value="all">Todas as salas</option>${approvedRooms().map(r=>`<option value="${r.id}" ${state.room===r.id?'selected':''}>${r.name}</option>`).join('')}</select></div>
+  </div>`;
 }
 function roomStatus(roomId,m){
   const res=data.reservations.filter(r=>r.roomId===roomId && r.date===state.date && r.status!=='cancelled');
@@ -223,11 +226,15 @@ function roomStatus(roomId,m){
   const soon=res.find(r=>minutes(r.start)>m && minutes(r.start)<=m+60); if(soon) return {cls:'soon', label:`Próxima às ${soon.start}`, res:soon};
   return {cls:'available', label:'Disponível agora', res:null};
 }
-function renderMapRoom(room,m){ const st=roomStatus(room.id,m); return `<button class="map-room ${st.cls}" data-room="${room.id}" onclick="openReservation('${room.id}')"><h4><span class="dot"></span>${room.name}</h4><p>${st.label}</p><p>${room.capacity} lugares</p></button>`; }
-function renderMapLegend(room,m){ const st=roomStatus(room.id,m); return `<div class="room-card"><div class="room-head" style="grid-template-columns:90px 1fr">${img(room.image, room.name, 'room-photo')}<div><h3>${room.name}</h3><span class="badge ${st.cls==='busy'?'bad':st.cls==='soon'?'wait':'ok'}">${st.label}</span><div class="muted" style="margin-top:8px">${room.capacity} lugares • ${escapeHtml(room.location)}</div></div></div></div>`; }
+function renderMapRoom(room,m){ const st=roomStatus(room.id,m); return `<button class="map-room ${st.cls}" data-room="${room.id}" onclick="openRoomDetails('${room.id}')"><h4><span class="dot"></span>${room.name}</h4><p>${st.label}</p><p>${room.capacity} lugares</p></button>`; }
+function renderMapLegend(room,m){ const st=roomStatus(room.id,m); return `<button class="room-card map-card" onclick="openRoomDetails('${room.id}')"><div class="room-head" style="grid-template-columns:90px 1fr">${img(room.image, room.name, 'room-photo')}<div><h3>${room.name}</h3><span class="badge ${st.cls==='busy'?'bad':st.cls==='soon'?'wait':'ok'}">${st.label}</span><div class="muted" style="margin-top:8px">${room.capacity} lugares • ${escapeHtml(room.location)}</div></div></div></button>`; }
 
+function roomImages(room){ return (room.images && room.images.length ? room.images : [room.image]).filter(Boolean); }
+function renderRoomGallery(room){
+  return `<div class="room-gallery">${roomImages(room).map(src=>img(src, room.name, 'gallery-photo')).join('')}</div>`;
+}
 function renderRooms(){
-  return `<div class="section-title"><div><span class="eyebrow">Espaços</span><h2>Salas e auditório</h2></div>${isAdmin()?`<button class="btn-primary" onclick="openRoomForm()">+ Nova sala/espaço</button>`:''}</div><div class="grid three">${approvedRooms().map(room=>`<article class="room-card">${img(room.image, room.name, '', 'height:230px;width:100%;object-fit:cover')}<div class="panel pad" style="border:0;box-shadow:none"><h3 style="margin:0;color:var(--blue);font-size:26px">${room.name}</h3><p class="muted">${room.capacity} lugares • ${escapeHtml(room.location)}</p><p>${escapeHtml(room.resources)}</p><button class="btn-primary" onclick="openReservation('${room.id}')">Reservar este espaço</button></div></article>`).join('')}</div>`;
+  return `<div class="section-title"><div><span class="eyebrow">Espaços</span><h2>Salas e auditório</h2><p class="muted">Arraste as fotos para o lado para visualizar todas as imagens de cada espaço.</p></div>${isAdmin()?`<button class="btn-primary" onclick="openRoomForm()">+ Nova sala/espaço</button>`:''}</div><div class="grid three">${approvedRooms().map(room=>`<article class="room-card">${renderRoomGallery(room)}<div class="panel pad" style="border:0;box-shadow:none"><h3 style="margin:0;color:var(--blue);font-size:26px">${room.name}</h3><p class="muted">${room.capacity} lugares • ${escapeHtml(room.location)}</p><p>${escapeHtml(room.resources)}</p><button class="btn-primary" onclick="openReservation('${room.id}')">Reservar este espaço</button></div></article>`).join('')}</div>`;
 }
 
 function renderAdmin(){
@@ -260,11 +267,38 @@ window.makeAdmin=id=>{ const u=data.users.find(x=>x.id===id); if(u){u.role='admi
 window.toggleRoom=id=>{ const r=data.rooms.find(x=>x.id===id); if(r){r.active=!r.active; save(); render();} };
 window.saveSettings=e=>{ e.preventDefault(); const fd=new FormData(e.target); data.settings={...data.settings, open:fd.get('open'), close:fd.get('close'), minDuration:Number(fd.get('minDuration')), maxDuration:Number(fd.get('maxDuration'))}; save(); render(); toast('Regras salvas.'); };
 
+
+window.openRoomDetails = (roomId) => { state.modal={type:'roomDetails', roomId}; render(); };
+function reservationDuration(r){ return minutes(r.end)-minutes(r.start); }
+function renderRoomDetailsModal(){
+  const room=getRoom(state.modal.roomId);
+  const now=new Date(); const currentM= state.date===todayISO() ? now.getHours()*60+now.getMinutes() : minutes(data.settings.open);
+  const st=roomStatus(room.id,currentM);
+  const dayReservations=data.reservations.filter(r=>r.roomId===room.id && r.date===state.date && r.status!=='cancelled').sort((a,b)=>minutes(a.start)-minutes(b.start));
+  const active=st.res;
+  return `<div class="modal-backdrop"><div class="modal modal-large"><div class="modal-head"><h3>${room.name} — informações da reserva</h3><button class="close" onclick="closeModal()">×</button></div>
+    <div class="room-detail-grid">
+      <div>${renderRoomGallery(room)}<div class="notice" style="margin-top:14px"><b>Status:</b> <span class="badge ${st.cls==='busy'?'bad':st.cls==='soon'?'wait':'ok'}">${st.label}</span><br><b>Capacidade:</b> ${room.capacity} lugares<br><b>Local:</b> ${escapeHtml(room.location)}<br><b>Recursos:</b> ${escapeHtml(room.resources||'-')}</div></div>
+      <div>
+        <h4 style="margin:0 0 12px;color:var(--blue);font-size:22px">${active ? 'Reserva em destaque' : 'Nenhuma reserva ativa agora'}</h4>
+        ${active ? renderReservationDetail(active) : '<div class="empty">Esta sala está livre no horário atual. Veja abaixo as próximas reservas da data selecionada.</div>'}
+        <h4 style="margin:20px 0 12px;color:var(--blue);font-size:22px">Agenda do dia</h4>
+        ${dayReservations.length ? dayReservations.map(renderReservationDetail).join('') : '<div class="empty">Nenhuma reserva para esta sala nesta data.</div>'}
+      </div>
+    </div>
+  </div></div>`;
+}
+function renderReservationDetail(r){
+  const user=getUser(r.userId); const dur=reservationDuration(r);
+  return `<div class="reservation-detail"><div class="time">${r.start}–${r.end}</div><strong>${escapeHtml(r.title)}</strong><br><span class="muted">Reservado por: ${escapeHtml(user.name)} • ${escapeHtml(user.department||'Sem departamento')}</span><br><span class="muted">Duração: ${dur} min • Participantes: ${r.people}</span>${r.notes?`<p>${escapeHtml(r.notes)}</p>`:''}</div>`;
+}
+
 window.openReservation = (roomId='') => { state.modal={type:'reservation', roomId: roomId || (state.room==='all'?'':state.room)}; render(); };
 window.openRoomForm = (id='') => { state.modal={type:'room', id}; render(); };
 window.closeModal = () => { state.modal=null; render(); };
 function renderModal(){
   if(state.modal.type==='room') return renderRoomModal();
+  if(state.modal.type==='roomDetails') return renderRoomDetailsModal();
   return renderReservationModal();
 }
 function renderReservationModal(){
@@ -282,11 +316,12 @@ window.saveReservation=e=>{
 };
 function renderRoomModal(){
   const r = data.rooms.find(x=>x.id===state.modal.id) || {name:'',capacity:4,location:'',resources:'',image:'assets/sala-1.jpeg',active:true};
-  return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h3>${state.modal.id?'Editar':'Nova'} sala/espaço</h3><button class="close" onclick="closeModal()">×</button></div><form class="form" onsubmit="saveRoom(event)"><input type="hidden" name="id" value="${state.modal.id||''}"><div class="grid two"><div class="field"><label>Nome</label><input required name="name" value="${escapeHtml(r.name)}"></div><div class="field"><label>Capacidade</label><input required type="number" name="capacity" min="1" value="${r.capacity}"></div></div><div class="field"><label>Localização</label><input name="location" value="${escapeHtml(r.location)}"></div><div class="field"><label>Foto/URL da imagem</label><input name="image" value="${escapeHtml(r.image)}"><small class="muted">Para novas fotos, envie a imagem para a pasta assets e informe o caminho. Ex.: assets/nova-sala.jpeg</small></div><div class="field"><label>Recursos</label><textarea name="resources">${escapeHtml(r.resources)}</textarea></div><button class="btn-primary">Salvar espaço</button></form></div></div>`;
+  return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h3>${state.modal.id?'Editar':'Nova'} sala/espaço</h3><button class="close" onclick="closeModal()">×</button></div><form class="form" onsubmit="saveRoom(event)"><input type="hidden" name="id" value="${state.modal.id||''}"><div class="grid two"><div class="field"><label>Nome</label><input required name="name" value="${escapeHtml(r.name)}"></div><div class="field"><label>Capacidade</label><input required type="number" name="capacity" min="1" value="${r.capacity}"></div></div><div class="field"><label>Localização</label><input name="location" value="${escapeHtml(r.location)}"></div><div class="field"><label>Foto principal/URL da imagem</label><input name="image" value="${escapeHtml(r.image)}"><small class="muted">Para novas fotos, envie a imagem para a pasta assets e informe o caminho. Ex.: assets/nova-sala.jpeg</small></div><div class="field"><label>Galeria de fotos</label><textarea name="images" placeholder="assets/sala-1.jpeg&#10;assets/outra-foto.jpeg">${escapeHtml(roomImages(r).join('\n'))}</textarea><small class="muted">Informe uma imagem por linha. Elas aparecerão em scroll horizontal na aba Salas.</small></div><div class="field"><label>Recursos</label><textarea name="resources">${escapeHtml(r.resources)}</textarea></div><button class="btn-primary">Salvar espaço</button></form></div></div>`;
 }
 window.saveRoom=e=>{
   e.preventDefault(); const fd=new FormData(e.target); const id=fd.get('id') || fd.get('name').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-  const room={id, name:fd.get('name'), capacity:Number(fd.get('capacity')), location:fd.get('location'), image:fd.get('image'), resources:fd.get('resources'), active:true};
+  const images=String(fd.get('images')||'').split(/\n|,/).map(x=>x.trim()).filter(Boolean);
+  const room={id, name:fd.get('name'), capacity:Number(fd.get('capacity')), location:fd.get('location'), image:fd.get('image'), images:images.length?images:[fd.get('image')], resources:fd.get('resources'), active:true};
   const i=data.rooms.findIndex(r=>r.id===id); if(i>=0) data.rooms[i]={...data.rooms[i],...room}; else data.rooms.push(room);
   save(); state.modal=null; render(); toast('Sala salva.');
 };

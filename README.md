@@ -1,75 +1,27 @@
-# Ultrafarma Reserva de Salas - V7
+# Ultrafarma Reserva de Salas - V9
 
-Sistema interno para agendamento de salas de reunião e auditório.
+Correção do erro em que o site abre mostrando o conteúdo do `firebase-config.js`.
 
-## Atualização V7
+## Importante
+O arquivo `index.html` precisa começar com:
 
-- Reserva entre datas: agora é possível escolher Data inicial e Data final.
-- O sistema bloqueia o mesmo horário em todos os dias do período selecionado.
-- Agenda dia, semana, mês, mapa ao vivo e painel admin passam a reconhecer reservas de vários dias.
-- Login admin mantido.
+```html
+<!doctype html>
+<html lang="pt-BR">
+```
 
-## Acesso admin
-
-E-mail: murillo.netto@ultrafarma.com.br  
-Senha: admin123
-
-Também existe o admin padrão:
-
-E-mail: admin@ultrafarma.com  
-Senha: admin123
+O arquivo `firebase-config.js` fica separado e não deve ser colado dentro do `index.html`.
 
 ## Firebase
+Esta versão mantém `window.USE_FIREBASE = true` e usa o mesmo projeto Firebase já configurado.
+Não apague o banco Firestore e não altere usuários/reservas cadastrados.
 
-O arquivo `firebase-config.js` já está preenchido com os dados do projeto Firebase informado e com:
+## Login admin mantido
+- murillo.netto@ultrafarma.com.br / admin123
+- admin@ultrafarma.com / admin123
 
-```js
-window.USE_FIREBASE = true;
-```
-
-No Firebase, mantenha o Firestore Database ativado e as regras publicadas para teste.
-
-## Estrutura correta para GitHub/Vercel
-
-Suba todos os arquivos extraídos diretamente na raiz do repositório:
-
-```txt
-index.html
-app.js
-styles.css
-firebase-config.js
-vercel.json
-README.md
-assets/
-logo-ultrafarma.png
-logo-u.png
-sala-1.jpeg
-sala-4.jpeg
-sala-5.jpeg
-sala-7.jpeg
-sala-8.jpeg
-mapa-referencia.png
-```
-
-## Atualização V8
-
-Esta versão mantém a mesma configuração do Firebase, o mesmo documento de banco e os logins já existentes. Não altera os cadastros/reservas salvos no Firestore.
-
-Inclusões:
-- Sala 2 — 4 lugares
-- Sala 3 — 4 lugares
-- Sala 6 — 8 lugares
-- Fotos das novas salas na raiz e em `assets/`
-- Logo da Ultrafarma centralizado no topo quando acessado pelo mobile
-
-Para atualizar: substitua os arquivos do GitHub por esta versão. O arquivo `firebase-config.js` já continua apontando para o mesmo Firebase.
-
-Estrutura adicional:
-```txt
-sala-2.jpeg
-sala-3.jpeg
-sala-6.jpeg
-assets/sala-2.jpeg
-assets/sala-3.jpeg
-assets/sala-6.jpeg
-```
+## Atualização no GitHub
+1. Apague os arquivos atuais do repositório.
+2. Suba todos os arquivos desta pasta para a raiz do repositório.
+3. Confirme que existem arquivos separados: `index.html`, `app.js`, `styles.css`, `firebase-config.js`.
+4. No Vercel, faça Redeploy.

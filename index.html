@@ -1,10 +1,18 @@
-window.USE_FIREBASE = true;
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ultrafarma | Reserva de Salas</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="assets/logo-u.png" />
+</head>
+<body>
+  <div id="app"></div>
 
-window.firebaseConfig = {
-  apiKey: "AIzaSyDcXi2sMi9hbiEKVNrbOF2kNOdx1iVGYmI",
-  authDomain: "salasdereuniao-8c61e.firebaseapp.com",
-  projectId: "salasdereuniao-8c61e",
-  storageBucket: "salasdereuniao-8c61e.firebasestorage.app",
-  messagingSenderId: "971023893263",
-  appId: "1:971023893263:web:9304c007ae32d59a32b47a"
-};
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <script src="firebase-config.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

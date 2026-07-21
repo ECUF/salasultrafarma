@@ -9,6 +9,10 @@ Sistema interno para agendamento de salas de reunião e auditório.
 - Login do admin mantido conforme solicitado:
   - E-mail: `admin@ultrafarma.com`
   - Senha: `admin123`
+
+- Acesso admin alternativo:
+  - E-mail: `murillo.netto@ultrafarma.com.br`
+  - Senha: `admin123`
 - Mapa ao vivo apenas informativo: ao clicar na sala, mostra dados da reserva e não abre reserva.
 - Topo sem identificação do colaborador logado; aparece apenas o botão **Sair**.
 - Aba **Salas** preparada para galeria de fotos com scroll horizontal.
@@ -133,6 +137,7 @@ O sistema mantém o admin padrão internamente:
 
 ```txt
 admin@ultrafarma.com / admin123
+murillo.netto@ultrafarma.com.br / admin123
 ```
 
 Essas credenciais não aparecem mais na tela inicial.

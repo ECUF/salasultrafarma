@@ -1,3 +1,6 @@
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js';
+
 const ASSET = 'assets/';
 const FALLBACK_IMAGES = {
   'assets/logo-ultrafarma.png':'logo-ultrafarma.png',
@@ -32,6 +35,9 @@ const hm = mins => `${pad(Math.floor(mins/60))}:${pad(mins%60)}`;
 const dateLabel = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
 const state = { tab:'agenda', adminTab:'dashboard', view:'day', date:todayISO(), room:'all', currentUser:null, modal:null };
 let data = loadData();
+let firebaseDb = null;
+let firebaseDocRef = null;
+let firebaseReady = false;
 
 function loadData(){
   const saved = localStorage.getItem('ultraReservaDataV2');
@@ -43,7 +49,46 @@ function loadData(){
   localStorage.setItem('ultraReservaDataV2', JSON.stringify(base));
   return base;
 }
-function save(){ localStorage.setItem('ultraReservaDataV2', JSON.stringify(data)); }
+function save(){
+  localStorage.setItem('ultraReservaDataV2', JSON.stringify(data));
+  saveCloud();
+}
+async function initFirebaseSync(){
+  try{
+    if(!window.USE_FIREBASE || !window.firebaseConfig || !window.firebaseConfig.apiKey) return;
+    const app = initializeApp(window.firebaseConfig);
+    firebaseDb = getFirestore(app);
+    firebaseDocRef = doc(firebaseDb, 'ultrafarma_reserva_salas', 'database');
+    const snap = await getDoc(firebaseDocRef);
+    if(snap.exists()){
+      const cloud = snap.data()?.payload;
+      if(cloud && cloud.rooms && cloud.users && cloud.reservations){
+        data = ensureSeeds(cloud);
+        localStorage.setItem('ultraReservaDataV2', JSON.stringify(data));
+      }
+    } else {
+      await setDoc(firebaseDocRef, { payload:data, updatedAt:serverTimestamp() });
+    }
+    firebaseReady = true;
+    render();
+  }catch(err){
+    console.error('Firebase não iniciou:', err);
+    toast('Firebase não configurado corretamente. Sistema em modo local.');
+  }
+}
+function ensureSeeds(base){
+  const users = base.users || [];
+  const adminExists = users.some(u => String(u.email||'').toLowerCase()==='admin@ultrafarma.com');
+  const mergedUsers = adminExists ? users : [usersSeed[0], ...users];
+  const roomIds = new Set((base.rooms||[]).map(r=>r.id));
+  const mergedRooms = [...(base.rooms||[]), ...roomsSeed.filter(r=>!roomIds.has(r.id))];
+  return { rooms: mergedRooms, users: mergedUsers, reservations: base.reservations || [], settings: base.settings || defaultSettings() };
+}
+async function saveCloud(){
+  if(!firebaseReady || !firebaseDocRef) return;
+  try{ await setDoc(firebaseDocRef, { payload:data, updatedAt:serverTimestamp() }, { merge:true }); }
+  catch(err){ console.error('Erro ao salvar no Firebase:', err); }
+}
 function defaultSettings(){ return { open:'08:00', close:'19:00', minDuration:30, maxDuration:240, slot:30, requireApproval:true, allowCancel:true }; }
 function seedReservations(){
   const d=todayISO();
@@ -112,7 +157,6 @@ function renderLogin(){
         <span class="eyebrow">Sistema interno Ultrafarma</span>
         <h1>Agendamento de salas com acesso restrito.</h1>
         <p class="muted">O colaborador solicita cadastro, o administrador aprova e a agenda fica protegida para uso interno.</p>
-        <div class="notice" style="margin-top:28px"><b>Acesso demo:</b><br>Admin: admin@ultrafarma.com / admin123<br>Usuário: usuario@ultrafarma.com / 123456</div>
       </div>
       <div class="login-right">
         <div class="tabs"><button id="loginTabBtn" class="active" onclick="switchAuth('login')">Entrar</button><button id="registerTabBtn" onclick="switchAuth('register')">Solicitar cadastro</button></div>
@@ -329,3 +373,4 @@ window.cancelReservation=id=>{ const r=data.reservations.find(x=>x.id===id); if(
 
 restoreSession();
 render();
+initFirebaseSync();

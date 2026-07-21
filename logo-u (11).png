@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ultrafarma | Reserva de Salas</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="assets/logo-u.png" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <script src="firebase-config.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
